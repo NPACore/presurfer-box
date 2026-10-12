@@ -1,6 +1,7 @@
 """Public presurfer workflows composed from SPM processing steps."""
 
 import logging
+import os
 import shutil
 import time
 from collections.abc import Callable
@@ -146,7 +147,7 @@ def _run_workflow(
     if not source.is_file():
         raise RuntimeError(f"Input file does not exist: {source}")
     nii_stem(source)
-    report_stage(reporter, "Validated input", started)
+    report_stage(reporter, f"Validated input ({os.getcwd()})", started)
     if run_dir is None:
         run_dir = utc_run_directory(source.parent, temporary)
     out = run_dir / f"presurf_{kind}"
@@ -320,8 +321,48 @@ def recon_prep(
         inv2_files.biascorrected, uni, output_dir, reporter, started
     )
     _run_workflow(mprageised, "UNI", runner, run_dir=run_dir, reporter=reporter)
+    report_stage(reporter, "MPRAGEized complete", started)
+
+    # 20261012 - generate would-be input to freesurfer
+    print(inv2_files) # is there stripmask in here?
+    # TODO: use variables to construct stripmask location (if they exist)
+    inv2_strip = run_dir / "presurf_INV2" / (nii_stem(inv2)  + "_stripmask.nii")
+    mask_mpragized(inv2_strip, mprageised, run_dir / "preped_mp2rage_brain.nii.gz")
+
     report_stage(reporter, "recon-prep complete", started)
+
+
     return run_dir
+
+
+def mask_mpragized(inv2_mask, mprageised, outname=None):
+    """
+    Apply inv2 stripmask to MPRAGEised
+
+     fslmaths presurf_MPRAGEise/*_MPRAGEised.nii  \
+              -mul presurf_INV2/*_stripmask.nii \
+               MPRAGEised_stripped.nii.gz
+
+        Args:
+            inv2_mask: INV2 stripmask
+            mprageised: MPRAGEised.nii input
+            outname: where to save the output
+
+
+        Returns:
+            Path to the ``MPRAGEized_inv2stripped.nii.gz`` masked output.
+    """
+    import nibabel as nib
+
+    if not outname:
+        outname = Path(os.path.dirname(mprageised)) / 'MPRAGEized_inv2stripped.nii.gz'
+
+    v = nib.load(mprageised)
+    m = nib.load(inv2_mask).get_fdata()
+    o = (m != 0) * v.get_fdata()
+    o = nib.Nifti1Image(o, v.affine, v.header)
+    nib.save(o, outname)
+    return outname
 
 
 def presurf_biascorrect(

@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+from datetime import datetime, UTC
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -120,8 +121,8 @@ def container_command(
             "docker",
             "run",
             "--rm",
-            "--user",
-            f"{os.getuid()}:{os.getgid()}",
+            #"--user",
+            #f"{os.getuid()}:{os.getgid()}",
             "-v",
             f"{mount_root.resolve()}:/data",
             container.image,
@@ -134,6 +135,7 @@ def container_command(
         "--bind",
         f"{mount_root.resolve()}:/data",
         container.image,
+        "spm",
         "batch",
         job,
     ]
@@ -206,19 +208,31 @@ def run_spm_batch(
     if container.runtime == "docker":
         _require_docker_image(container.image)
     command = container_command(mount_root, job_file, container)
-    result = subprocess.run(command, check=False, text=True, capture_output=True)
     header = (
         f"SPM batch: {job_file.name}\n"
         f"Container: {container.runtime} {container.image}\n"
+        f"Command: {' '.join(command)}\n"
+        f"Root: {mount_root}\n"
         f"MATLAB threads: {threads if threads is not None else 'MATLAB default'}\n\n"
+        f"Start(UTC): {datetime.now(UTC).strftime('%y%m%dT%H:%M:%S')}\n"
     )
+    if os.environ.get("VERBOSE"):
+        print("Saving log to '{log_path}'")
+        print(header)
+
+    # open log file early for early feedback. Command may take a while to run.
     with log_path.open("a") as log:
-        log.write(
-            header
-            + "STDOUT\n------\n"
+        log.write(header)
+
+    # TODO: stream command output to log file
+    result = subprocess.run(command, check=False, text=True, capture_output=True)
+    with log_path.open("a") as log:
+        log.write("STDOUT\n------\n"
             + result.stdout
             + "\nSTDERR\n------\n"
             + result.stderr
+            + "\nExit Code: {result.returncode}"
+            + f"\nFinish(UTC): {datetime.now(UTC).strftime('%y%m%dT%H:%M:%S')}"
             + "\n"
         )
     if result.returncode:

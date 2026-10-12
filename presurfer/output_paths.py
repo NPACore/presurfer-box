@@ -4,6 +4,7 @@ import gzip
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+import os
 
 __all__ = ["container_path", "materialise_input", "nii_stem", "utc_run_directory"]
 
@@ -21,12 +22,19 @@ def utc_run_directory(parent: Path, temporary: bool = False) -> Path:
         with the same timestamp already exists.
     """
     prefix = "tmp_" if temporary else ""
-    stem = f"{prefix}{datetime.now(UTC).strftime('%y%m%dT%H:%M:%S')}_presurfer"
-    candidate = parent / stem
-    suffix = 2
-    while candidate.exists():
-        candidate = parent / f"{stem}-{suffix}"
-        suffix += 1
+    candidate = parent / f"{prefix}{datetime.now(UTC).strftime('%y%m%dT%H:%M:%S')}_presurfer"
+    #: PRESURFER_FOLDER overwrites dynamic output generation. Use what user specifies
+    candidate = Path(os.environ.get('PRESURFER_FOLDER',candidate))
+
+    # skip or remove
+    if candidate.exists():
+        if os.environ.get("REDO"):
+            print(f"WARNING: removing {candidate} b/c REDO in environment")
+            shutil.rmtree(candidate)
+        else:
+            # TODO: exit without error for existing if final file
+            raise Exception(f"# output folder {candidate} already exists. export REDO=1 to remove and redo.")
+
     candidate.mkdir()
     return candidate
 
